@@ -7,10 +7,11 @@ import android.support.v7.widget.AppCompatImageButton
 import android.view.View
 import android.widget.ProgressBar
 import android.widget.Toast
+import com.google.android.gms.vision.Frame
+import com.google.android.gms.vision.barcode.Barcode
+import com.google.android.gms.vision.barcode.BarcodeDetector
 import io.fotoapparat.Fotoapparat
 import io.fotoapparat.FotoapparatSwitcher
-import io.fotoapparat.facedetector.processor.FaceDetectorProcessor
-import io.fotoapparat.facedetector.view.RectanglesView
 import io.fotoapparat.parameter.LensPosition
 import io.fotoapparat.parameter.ScaleType
 import io.fotoapparat.parameter.selector.FocusModeSelectors
@@ -29,15 +30,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var backFotoapparat: Fotoapparat
     private lateinit var takePictureButton: AppCompatImageButton
     private lateinit var progressBar: ProgressBar
+    private lateinit var barcodeDetector: BarcodeDetector
 
     private val cameraPermissionsDelegate = PermissionsDelegate(this)
-
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         val cameraView = findViewById(R.id.camera_view) as CameraView
-        val faceRectangleView = findViewById(R.id.face_rectangle) as RectanglesView
         takePictureButton = findViewById(R.id.take_picture_button) as AppCompatImageButton
         progressBar = findViewById(R.id.progress_bar) as ProgressBar
         val switchButton = findViewById(R.id.switch_button) as AppCompatImageButton
@@ -46,25 +46,29 @@ class MainActivity : AppCompatActivity() {
             fotoapparatSwitcher.currentFotoapparat.focus()
         }
 
+        barcodeDetector = BarcodeDetector.Builder(applicationContext)
+                .setBarcodeFormats(Barcode.DATA_MATRIX or Barcode.QR_CODE)
+                .build()
+
         takePictureButton.setOnClickListener {
             showLoading(true)
+            readBarcode()
         }
 
         switchButton.setOnClickListener {
             switchCameras()
         }
 
-        val faceDetector = FaceDetectorProcessor.with(this)
-                .listener {
-                    faceRectangleView.setRectangles(it)
-                }
-                .build()
-
         if (!cameraPermissionsDelegate.hasCameraPermission()) {
             cameraPermissionsDelegate.requestCameraPermission()
         }
-        backFotoapparat = createFotoapparat(cameraView, faceDetector, LensPosition.BACK)
-        frontFotoapparat = createFotoapparat(cameraView, faceDetector, LensPosition.FRONT)
+
+        if (!barcodeDetector.isOperational) {
+            showDialog("Barcode detector is not working", "Error")
+        }
+
+        backFotoapparat = createFotoapparat(cameraView, LensPosition.BACK)
+        frontFotoapparat = createFotoapparat(cameraView, LensPosition.FRONT)
         fotoapparatSwitcher = FotoapparatSwitcher.withDefault(backFotoapparat)
     }
 
@@ -93,9 +97,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun canSwitchCameras(): Boolean {
-        return frontFotoapparat.isAvailable == backFotoapparat.isAvailable
+    private fun readBarcode() {
+        takePicture()
+                .subscribe({ bitmapPhoto ->
+                    val frame = Frame.Builder()
+                            .setBitmap(bitmapPhoto.bitmap)
+                            .build()
+                    val barcodes = barcodeDetector.detect(frame)
+                    (0 .. barcodes.size())
+                            .map { barcodes.get(it) }
+                            .filter { it != null }
+                            .forEach { showDialog(it.rawValue, "Barcode") }
+                }, { error ->
+                    val message = error.message
+                    if (message != null) message.let { showDialog(it, "Error") }
+                    else showDialog(error.localizedMessage, "Error")
+                }
+                )
     }
+
+    private fun canSwitchCameras(): Boolean =
+            frontFotoapparat.isAvailable == backFotoapparat.isAvailable
 
     private fun switchCameras() {
         if (canSwitchCameras()) {
@@ -114,6 +136,9 @@ class MainActivity : AppCompatActivity() {
         return fotoapparatSwitcher.currentFotoapparat.takePicture()
                 .toBitmap()
                 .adapt(SingleAdapter.toSingle())
+                .onErrorResumeNext {
+                    Single.error(it)
+                }
                 .subscribeOn(Schedulers.io())
                 .observeOn(Schedulers.newThread())
     }
@@ -148,7 +173,8 @@ class MainActivity : AppCompatActivity() {
                 .show()
     }
 
-    private fun createFotoapparat(cameraView: CameraView, faceDetector: FaceDetectorProcessor, lensPosition: LensPosition): Fotoapparat {
+
+    private fun createFotoapparat(cameraView: CameraView, lensPosition: LensPosition): Fotoapparat {
         return Fotoapparat.with(this)
                 .into(cameraView)
                 .lensPosition(LensPositionSelectors.lensPosition(LensPosition.BACK))
@@ -162,7 +188,6 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this@MainActivity, error.message, Toast.LENGTH_LONG).show()
                 }
                 .lensPosition(LensPositionSelectors.lensPosition(lensPosition))
-                .frameProcessor(faceDetector)
                 .previewScaleType(ScaleType.CENTER_CROP)
                 .build()
     }

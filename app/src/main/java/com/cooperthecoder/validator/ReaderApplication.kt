@@ -2,8 +2,6 @@ package com.cooperthecoder.validator
 
 import android.app.Application
 import android.os.StrictMode
-import com.github.anrwatchdog.ANRWatchDog
-
 
 class ReaderApplication: Application() {
     override fun onCreate() {
@@ -15,7 +13,6 @@ class ReaderApplication: Application() {
                     .penaltyDeath()
                     .penaltyDeathOnNetwork()
                     .build())
-            ANRWatchDog().start()
         }
 
     }

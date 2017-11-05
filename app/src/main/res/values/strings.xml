@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Reader</string>
+    <string name="app_name">Food Reader</string>
     <string name="capture_button_text">Take Picture</string>
     <string name="switch_button_text">Other Camera</string>
     <string name="cannot_switch_cameras">Unable to switch cameras. Does this device have 2 cameras?</string>
